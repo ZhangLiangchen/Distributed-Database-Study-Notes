@@ -434,6 +434,7 @@ This report provides a source-level, traceable, and falsifiable comparison of th
 在动手之前必须先把几个常被混为一谈的概念拆开，因为 TiDB 与 OceanBase 恰好在这几个维度上做了不同选择。
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"background":"#ffffff","primaryColor":"#ffffff","primaryBorderColor":"#9370DB","primaryTextColor":"#333333","clusterBkg":"#ffffff","clusterBorder":"#aab0bb","edgeLabelBackground":"#ffffff","lineColor":"#333333","textColor":"#333333"}}}%%
 flowchart LR
  subgraph G1["TiDB：一个 Region 绑定多重身份"]
  direction TB
@@ -589,23 +590,36 @@ OceanBase 的均衡路径也与 TiDB 不同。TiDB 主要按 Region range 和 pe
 图 1-2 展示两边的正常写入分片路径(TiDB 左、OceanBase 右)，刻意把 TiDB 的 SQL Table/Index 放在编码前、把 Region 放在 KV keyspace 之后，以避免"Region 与 SQL 表一一对应"的误解；OceanBase 部分则把 Partition、Tablet、LS 拆成三层，避免把 4.x Partition 逻辑概念直接写成复制组。
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"background":"#ffffff","primaryColor":"#ffffff","primaryBorderColor":"#9370DB","primaryTextColor":"#333333","clusterBkg":"#ffffff","clusterBorder":"#aab0bb","edgeLabelBackground":"#ffffff","lineColor":"#333333","textColor":"#333333"}}}%%
 flowchart LR
  subgraph TiDB["TiDB:KV Range 自动分片路径"]
  direction TB
- T1["SQL Table / Index 行"] -->|"encode tablecodec: t{tid}_r{rid} / t{tid}_i{iid}"| T2["全局有序 KV Keyspace"]
- T2 -->|split by size 256MiB / keys / load QPS-Byte-CPU / split-key| T3["Region [start,end)"]
- T3 -->|该 Region 即一个 Raft Group, 3 副本| T4["Raft 多数派提交"]
- T4 --> T5["TiKV Store(分布于不同节点)"]
- T6["PD: 心跳上报 → split/merge/scatter/balance/hot-region"] -.range location 与调度元数据.-> T3
+ subgraph TROW1["编码与分片定位"]
+ direction LR
+ T1["SQL Table / Index 行"] -->|"encode tablecodec<br/>t{tid}_r{rid} / t{tid}_i{iid}"| T2["全局有序<br/>KV Keyspace"]
+ T2 -->|"split: 256MiB / keys<br/>load / split-key"| T3["Region<br/>[start,end)"]
+ end
+ subgraph TROW2["复制与调度"]
+ direction LR
+ T6["PD<br/>心跳上报<br/>split / merge / scatter<br/>balance / hot-region"] -. "range location<br/>调度元数据" .-> T4["Raft<br/>多数派提交"]
+ T4 --> T5["TiKV Store<br/>分布于不同节点"]
+ end
+ T3 -->|"Region = Raft Group<br/>3 副本"| T4
  end
  subgraph OB["OceanBase:Partition + Tablet + LS 路径"]
  direction TB
- B1["Table"] -->|PARTITION BY| B2["Partition(逻辑)"]
- B2 -->|每物理分区 1:1| B3["Tablet(存储对象)"]
- B3 -->|tablet-to-LS 映射 / 随 LS 被调度| B4["Log Stream (LS)"]
- B4 -->|Multi-Paxos / PALF 复制式 WAL| B5["多数派持久化，推进事务状态"]
+ subgraph BROW1["分区到日志流"]
+ direction LR
+ B1["Table"] -->|"PARTITION BY"| B2["Partition<br/>逻辑"]
+ B2 -->|"每物理分区 1:1"| B3["Tablet<br/>存储对象"]
+ B3 -->|"tablet-to-LS 映射<br/>随 LS 被调度"| B4["Log Stream<br/>(LS)"]
+ end
+ subgraph BROW2["复制与调度"]
+ direction LR
+ B7["RootService<br/>(sys tenant)<br/>均衡 / transfer<br/>major freeze"] -. "调度" .-> B5["多数派持久化<br/>推进事务状态"]
  B5 --> B6["OBServer / Zone"]
- B7["RootService(sys tenant)：均衡/transfer/major freeze"] -.调度.-> B4
+ end
+ B4 -->|"Multi-Paxos / PALF<br/>复制式 WAL"| B5
  end
 
  TiDB ~~~ OB
@@ -960,9 +974,10 @@ ODP 的路由表采多级缓存：先本地缓存，再全局缓存，最后向 
 ## 2.5 正常路径图
 
 ```mermaid
-flowchart TD
+%%{init: {"theme":"base","themeVariables":{"background":"#ffffff","primaryColor":"#ffffff","primaryBorderColor":"#9370DB","primaryTextColor":"#333333","clusterBkg":"#ffffff","clusterBorder":"#aab0bb","edgeLabelBackground":"#ffffff","lineColor":"#333333","textColor":"#333333"}}}%%
+flowchart LR
  subgraph TiDB[TiDB 客户端侧路由]
- direction TB
+ direction LR
  C1[Client] --> TS[TiDB Server<br/>无状态 SQL 节点]
  TS --> RC{RegionCache<br/>LocateKey}
  RC -->|缓存命中| TASK[按 Region 切分<br/>SplitRegionRanges → cop tasks]
@@ -976,7 +991,7 @@ flowchart TD
  end
 
  subgraph OB[OceanBase 代理侧路由]
- direction TB
+ direction LR
  C2[Client] --> ODP[ODP/OBProxy<br/>cluster/tenant 路由 + SQL Parse]
  ODP --> PR[表/索引路由 + partition pruning]
  PR --> PC{本地缓存→全局缓存}
@@ -1196,14 +1211,15 @@ OceanBase 的代价：
 ## 3.2 TiDB 的实现：Multi-Raft over raft-rs
 
 ```mermaid
-flowchart TB
+%%{init: {"theme":"base","themeVariables":{"background":"#ffffff","primaryColor":"#ffffff","primaryBorderColor":"#9370DB","primaryTextColor":"#333333","clusterBkg":"#ffffff","clusterBorder":"#aab0bb","edgeLabelBackground":"#ffffff","lineColor":"#333333","textColor":"#333333"}}}%%
+flowchart LR
  subgraph G1["TiKV 侧（Multi-Raft over raft-rs）"]
- direction TB
+ direction LR
  A1["RaftKV（propose）"] --> A2["raft-rs（Multi-Raft：选举/复制/安全性）"]
  A2 --> A3["Raft Engine（日志落盘）"]
  end
  subgraph G2["OceanBase 侧（Multi-Paxos over PALF）"]
- direction TB
+ direction LR
  B1["事务（redo）"] --> B2["PALF / Paxos（多数派复制）"]
  B2 --> B3["日志落盘"]
  end
@@ -1297,9 +1313,10 @@ LS 侧的角色与状态由 `ob_log_handler.h` 封装：`switch_role`、`get_rol
 ### 故障路径核心：LogReconfirm（Phase-1 + 日志恢复）
 
 ```mermaid
-flowchart TB
+%%{init: {"theme":"base","themeVariables":{"background":"#ffffff","primaryColor":"#ffffff","primaryBorderColor":"#9370DB","primaryTextColor":"#333333","clusterBkg":"#ffffff","clusterBorder":"#aab0bb","edgeLabelBackground":"#ffffff","lineColor":"#333333","textColor":"#333333"}}}%%
+flowchart LR
  subgraph G1["PALF Reconfirm / Leader 切换状态机"]
- direction TB
+ direction LR
  S0["Follower"] -->|"lease 失效后按 priority 当选"| S1["LEADER_RECONFIRM"]
  S1 --> S2["FETCH_MAX_LOG_LSN"]
  S2 -->|"submit_prepare_log_（Prepare）"| S3["RECONFIRM_MODE_META"]
