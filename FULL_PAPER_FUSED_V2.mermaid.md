@@ -434,7 +434,7 @@ This report provides a source-level, traceable, and falsifiable comparison of th
 在动手之前必须先把几个常被混为一谈的概念拆开，因为 TiDB 与 OceanBase 恰好在这几个维度上做了不同选择。
 
 ```mermaid
-flowchart TB
+flowchart LR
  subgraph G1["TiDB：一个 Region 绑定多重身份"]
  direction TB
  A1["连续 Key Range（物理分片）"] --> A2["Region"]
@@ -589,7 +589,7 @@ OceanBase 的均衡路径也与 TiDB 不同。TiDB 主要按 Region range 和 pe
 图 1-2 展示两边的正常写入分片路径(TiDB 左、OceanBase 右)，刻意把 TiDB 的 SQL Table/Index 放在编码前、把 Region 放在 KV keyspace 之后，以避免"Region 与 SQL 表一一对应"的误解；OceanBase 部分则把 Partition、Tablet、LS 拆成三层，避免把 4.x Partition 逻辑概念直接写成复制组。
 
 ```mermaid
-flowchart TB
+flowchart LR
  subgraph TiDB["TiDB:KV Range 自动分片路径"]
  direction TB
  T1["SQL Table / Index 行"] -->|"encode tablecodec: t{tid}_r{rid} / t{tid}_i{iid}"| T2["全局有序 KV Keyspace"]
