@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TiDB 与 OceanBase 分布式数据库底层架构对比研究</title>
+<meta name="description" content="从分片、共识、存储到事务、HTAP、存算分离与云原生的源码级横向剖析。融合学习版，25 章 + 7 附录，79 图 91 表。">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@5.5.1/github-markdown-light.min.css">
+<style>
+  :root{
+    --sidebar-w: 320px;
+    --accent: #0969da;
+    --border: #d0d7de;
+    --bg: #ffffff;
+    --muted: #57606a;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:#1f2328;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  }
+  /* top bar */
+  header.topbar{
+    position:sticky; top:0; z-index:30; height:52px;
+    display:flex; align-items:center; gap:12px; padding:0 16px;
+    background:#24292f; color:#fff; border-bottom:1px solid #1b1f24;
+  }
+  header.topbar .title{font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  header.topbar .spacer{flex:1}
+  header.topbar a{color:#fff; text-decoration:none; opacity:.85; font-size:13px}
+  header.topbar a:hover{opacity:1; text-decoration:underline}
+  #menuBtn{display:none; background:none; border:1px solid #57606a; color:#fff; border-radius:6px; padding:4px 9px; cursor:pointer; font-size:16px}
+  /* layout */
+  .layout{display:flex; align-items:flex-start}
+  nav.toc{
+    position:sticky; top:52px; align-self:flex-start;
+    width:var(--sidebar-w); height:calc(100vh - 52px); overflow-y:auto;
+    border-right:1px solid var(--border); padding:14px 6px 60px 14px; background:#f6f8fa;
+    font-size:13.5px; line-height:1.5;
+  }
+  nav.toc .grp > .g-head{
+    display:flex; align-items:center; gap:6px; cursor:pointer; padding:4px 6px; border-radius:6px;
+    font-weight:600; color:#1f2328;
+  }
+  nav.toc .grp > .g-head:hover{background:#eaeef2}
+  nav.toc .g-head .tw{color:var(--muted); font-size:11px; width:12px; flex:0 0 12px; transition:transform .15s}
+  nav.toc .grp.collapsed .children{display:none}
+  nav.toc .grp.collapsed .tw{transform:rotate(-90deg)}
+  nav.toc .children{margin:2px 0 6px 0}
+  nav.toc a{display:block; text-decoration:none; color:var(--muted); padding:3px 6px 3px 24px; border-radius:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  nav.toc a:hover{background:#eaeef2; color:#1f2328}
+  nav.toc a.active{background:#ddf4ff; color:var(--accent); font-weight:600}
+  nav.toc .g-head.active{color:var(--accent)}
+  /* content */
+  main{flex:1; min-width:0; display:flex; justify-content:center}
+  .markdown-body{
+    max-width:900px; width:100%; padding:32px 40px 120px; box-sizing:border-box;
+    font-size:16px; line-height:1.75;
+  }
+  .markdown-body h1{font-size:1.7em; border-bottom:2px solid #d8dee4; padding-bottom:.3em; margin-top:1.8em}
+  .markdown-body h2{font-size:1.35em; margin-top:1.6em}
+  .markdown-body h3{font-size:1.12em}
+  .markdown-body img{display:block; margin:14px auto; max-width:100%; height:auto; background:#fff; border:1px solid #eaeef2; border-radius:6px}
+  .markdown-body table{display:table; width:100%; font-size:14px; overflow-wrap:anywhere}
+  .markdown-body pre{font-size:13px}
+  .markdown-body code{font-size:.9em}
+  .markdown-body p > strong:first-child{color:#1f2328}
+  .anchor{float:left; margin-left:-22px; padding-right:6px; opacity:0; text-decoration:none; color:var(--muted)}
+  .markdown-body h1:hover .anchor,.markdown-body h2:hover .anchor,.markdown-body h3:hover .anchor{opacity:1}
+  /* loading */
+  #status{padding:60px 40px; color:var(--muted); font-size:15px}
+  .spin{display:inline-block; width:16px; height:16px; border:2px solid #d0d7de; border-top-color:var(--accent); border-radius:50%; animation:sp .8s linear infinite; vertical-align:-3px; margin-right:8px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  /* back to top */
+  #toTop{position:fixed; right:20px; bottom:22px; z-index:40; display:none; width:42px; height:42px; border-radius:50%;
+    background:#24292f; color:#fff; border:none; cursor:pointer; font-size:18px; box-shadow:0 2px 10px rgba(0,0,0,.25)}
+  /* scrim for mobile */
+  #scrim{display:none; position:fixed; inset:52px 0 0 0; background:rgba(0,0,0,.35); z-index:25}
+  @media (max-width: 1000px){
+    nav.toc{position:fixed; left:0; top:52px; z-index:26; transform:translateX(-100%); transition:transform .2s; box-shadow:2px 0 12px rgba(0,0,0,.15)}
+    body.nav-open nav.toc{transform:translateX(0)}
+    body.nav-open #scrim{display:block}
+    #menuBtn{display:inline-block}
+    .markdown-body{padding:20px 18px 100px}
+  }
+  @media print{
+    header.topbar,nav.toc,#toTop,#menuBtn,#scrim{display:none!important}
+    .markdown-body{max-width:none}
+  }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <button id="menuBtn" aria-label="目录">☰</button>
+  <div class="title">TiDB 与 OceanBase 底层架构对比研究 · 融合学习版</div>
+  <div class="spacer"></div>
+  <a href="https://github.com/ZhangLiangchen/Distributed-Database-Study-Notes" target="_blank" rel="noopener">GitHub</a>
+  <a href="FULL_PAPER_FUSED_V2.md">Markdown</a>
+</header>
+<div class="layout">
+  <nav class="toc" id="toc"></nav>
+  <div id="scrim"></div>
+  <main>
+    <article class="markdown-body" id="content">
+      <div id="status"><span class="spin"></span>正在加载全文(约 0.9 MB)…</div>
+    </article>
+  </main>
+</div>
+<button id="toTop" title="回到顶部" aria-label="回到顶部">↑</button>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script>
+(function(){
+  var content = document.getElementById('content');
+  var statusEl = document.getElementById('status');
+  var MD_URL = 'FULL_PAPER_FUSED_V2.md';
+
+  fetch(MD_URL).then(function(r){
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    return r.text();
+  }).then(function(md){
+    render(md);
+  }).catch(function(e){
+    statusEl.innerHTML = '加载失败:'+e.message+'。可直接阅读 <a href="'+MD_URL+'">Markdown 原文</a>。';
+  });
+
+  function render(md){
+    marked.setOptions({gfm:true, breaks:false, headerIds:false, mangle:false});
+    var html = marked.parse(md);
+    content.innerHTML = html;
+
+    // assign ids + anchors to headings, collect for TOC
+    var heads = content.querySelectorAll('h1, h2, h3');
+    var items = [];
+    heads.forEach(function(h, i){
+      var id = 'sec-' + i;
+      h.id = id;
+      var a = document.createElement('a');
+      a.className = 'anchor'; a.href = '#' + id; a.textContent = '#';
+      h.insertBefore(a, h.firstChild);
+      items.push({id:id, level:parseInt(h.tagName[1],10), text:h.textContent.replace(/^#/, '').trim(), el:h});
+    });
+    buildTOC(items);
+    enhanceImages();
+    setupScrollSpy(items);
+    // jump to hash if present
+    if(location.hash){ var t=document.getElementById(location.hash.slice(1)); if(t) t.scrollIntoView(); }
+  }
+
+  function buildTOC(items){
+    var toc = document.getElementById('toc');
+    var html = '';
+    var i = 0;
+    while(i < items.length){
+      var it = items[i];
+      if(it.level === 1){
+        // group = this h1 + following h2 until next h1
+        var children = '';
+        var j = i + 1;
+        while(j < items.length && items[j].level >= 2){
+          if(items[j].level === 2){
+            children += '<a href="#'+items[j].id+'" data-target="'+items[j].id+'">'+esc(items[j].text)+'</a>';
+          }
+          j++;
+        }
+        var collapsed = children ? ' collapsed' : '';
+        html += '<div class="grp'+collapsed+'" data-h1="'+it.id+'">'
+              +   '<div class="g-head" data-target="'+it.id+'">'
+              +     (children ? '<span class="tw">▾</span>' : '<span class="tw"></span>')
+              +     '<span class="g-label">'+esc(it.text)+'</span>'
+              +   '</div>'
+              +   '<div class="children">'+children+'</div>'
+              + '</div>';
+        i = j;
+      } else {
+        // stray h2/h3 before any h1 (front matter): list flat
+        html += '<div class="grp"><div class="g-head" data-target="'+it.id+'"><span class="tw"></span><span class="g-label">'+esc(it.text)+'</span></div></div>';
+        i++;
+      }
+    }
+    toc.innerHTML = html;
+
+    toc.addEventListener('click', function(e){
+      var head = e.target.closest('.g-head');
+      var link = e.target.closest('a');
+      if(link){ closeNavMobile(); return; } // anchor navigates
+      if(head){
+        var grp = head.closest('.grp');
+        // toggle collapse when clicking the triangle area or label, but also navigate
+        var tgt = head.getAttribute('data-target');
+        if(grp.querySelector('.children') && grp.querySelector('.children').children.length){
+          grp.classList.toggle('collapsed');
+        }
+        if(tgt){ location.hash = tgt; closeNavMobile(); }
+      }
+    });
+  }
+
+  function enhanceImages(){
+    // make every figure clickable to open full-size in new tab
+    content.querySelectorAll('img').forEach(function(img){
+      img.style.cursor='zoom-in';
+      img.addEventListener('click', function(){ window.open(img.src, '_blank'); });
+      img.loading = 'lazy';
+    });
+  }
+
+  function setupScrollSpy(items){
+    var toc = document.getElementById('toc');
+    var map = {}; // id -> toc link/head
+    toc.querySelectorAll('[data-target]').forEach(function(el){ map[el.getAttribute('data-target')] = el; });
+    var ticking = false;
+    function onScroll(){
+      if(ticking) return; ticking = true;
+      requestAnimationFrame(function(){
+        ticking = false;
+        var y = window.scrollY + 90;
+        var cur = null;
+        for(var k=0;k<items.length;k++){
+          if(items[k].el.offsetTop <= y) cur = items[k]; else break;
+        }
+        toc.querySelectorAll('.active').forEach(function(e){ e.classList.remove('active'); });
+        if(cur){
+          var el = map[cur.id];
+          // for h3 (no toc entry), fall back to nearest h2/h1
+          var idx = items.indexOf(cur);
+          while(!el && idx>0){ idx--; el = map[items[idx].id]; }
+          if(el){
+            el.classList.add('active');
+            var grp = el.closest('.grp');
+            if(grp){ grp.classList.remove('collapsed'); grp.querySelector('.g-head').classList.add('active'); }
+            // ensure visible in sidebar
+            var r = el.getBoundingClientRect();
+            if(r.top < 60 || r.bottom > window.innerHeight) el.scrollIntoView({block:'center'});
+          }
+        }
+        document.getElementById('toTop').style.display = window.scrollY > 600 ? 'block':'none';
+      });
+    }
+    window.addEventListener('scroll', onScroll, {passive:true});
+    onScroll();
+  }
+
+  function esc(s){ return s.replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+  // mobile nav
+  var body = document.body;
+  document.getElementById('menuBtn').addEventListener('click', function(){ body.classList.toggle('nav-open'); });
+  document.getElementById('scrim').addEventListener('click', function(){ body.classList.remove('nav-open'); });
+  function closeNavMobile(){ if(window.innerWidth <= 1000) body.classList.remove('nav-open'); }
+  document.getElementById('toTop').addEventListener('click', function(){ window.scrollTo({top:0, behavior:'smooth'}); });
+})();
+</script>
+</body>
+</html>
